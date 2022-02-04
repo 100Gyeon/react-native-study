@@ -1,5 +1,7 @@
+import axios, {AxiosError} from 'axios';
 import React, {useCallback, useRef, useState} from 'react';
 import {
+  ActivityIndicator,
   Alert,
   Platform,
   Pressable,
@@ -8,9 +10,11 @@ import {
   TextInput,
   View,
 } from 'react-native';
+import Config from 'react-native-config';
 import DismissKeyboardView from '../components/DismissKeyboardView';
 
 function SignUp() {
+  const [loading, setLoading] = useState(false);
   const [email, setEmail] = useState('');
   const [name, setName] = useState('');
   const [password, setPassword] = useState('');
@@ -30,7 +34,10 @@ function SignUp() {
     setPassword(text.trim());
   }, []);
 
-  const onSubmit = useCallback(() => {
+  const onSubmit = useCallback(async () => {
+    if (loading) {
+      return;
+    }
     if (!email || !email.trim()) {
       return Alert.alert('알림', '이메일을 입력해주세요.');
     }
@@ -53,8 +60,24 @@ function SignUp() {
         '비밀번호는 영문, 숫자, 특수문자($@^!%*#?&)를 모두 포함하여 8자 이상 입력해야 합니다.',
       );
     }
+
+    try {
+      setLoading(true);
+      console.log(Config.API_URL);
+      const response = await axios.post(`${Config.API_URL}`, {email, name, password});
+      Alert.alert('알림', '회원가입 되었습니다.');
+    } catch (error) {
+      const errorResponse = (error as AxiosError).response;
+      console.error(errorResponse);
+      if (errorResponse) {
+        Alert.alert('알림', errorResponse.data.message);
+      }
+    } finally {
+      setLoading(false);
+    }
+
     Alert.alert('알림', '회원가입 되었습니다.');
-  }, [email, name, password]);
+  }, [loading, email, name, password]);
 
   const canGoNext = email && name && password;
   return (
@@ -95,7 +118,7 @@ function SignUp() {
         <Text style={styles.label}>비밀번호</Text>
         <TextInput
           style={styles.textInput}
-          placeholder="비밀번호를 입력해주세요.(영문, 숫자, 특수문자)"
+          placeholder="비밀번호를 입력해주세요. (영문, 숫자, 특수문자)"
           placeholderTextColor="#666"
           onChangeText={onChangePassword}
           value={password}
@@ -115,9 +138,13 @@ function SignUp() {
               ? StyleSheet.compose(styles.loginButton, styles.loginButtonActive)
               : styles.loginButton
           }
-          disabled={!canGoNext}
+          disabled={!canGoNext || loading}
           onPress={onSubmit}>
-          <Text style={styles.loginButtonText}>회원가입</Text>
+          {loading ? (
+            <ActivityIndicator color="white" />
+          ) : (
+            <Text style={styles.loginButtonText}>회원가입</Text>
+          )}
         </Pressable>
       </View>
     </DismissKeyboardView>
