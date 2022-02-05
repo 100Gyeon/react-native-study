@@ -10,7 +10,15 @@ import Settings from './src/pages/Settings';
 import SignIn from './src/pages/SignIn';
 import SignUp from './src/pages/SignUp';
 import useSocket from './src/hooks/useSocket';
-import { useEffect } from 'react';
+import {useEffect} from 'react';
+import EncryptedStorage from 'react-native-encrypted-storage';
+import Config from 'react-native-config';
+import axios, { AxiosError } from 'axios';
+import userSlice from './src/slices/user';
+import { Alert } from 'react-native';
+import { useAppDispatch } from './src/store';
+import orderSlice from './src/slices/order';
+
 
 export type LoggedInParamList = {
   Orders: undefined;
@@ -31,37 +39,65 @@ function AppInner() {
   // Provider 내부에서만 useSelector 사용 가능
   const isLoggedIn = useSelector((state: RootState) => !!state.user.email);
   const [socket, disconnect] = useSocket();
-  
+  const dispatch = useAppDispatch();
+
   useEffect(() => {
-    // 서버에서 데이터 받을 때는 callback 방식으로 처리
-    const helloCallback = (data: any) => {
-      console.log(data);
+    const callback = (data: any) => {
+      dispatch(orderSlice.actions.addOrder(data));
     };
-
     if (socket && isLoggedIn) {
-      // 서버한테 데이터 보냄 -> emit
-      // login이라는 key로 hello라는 값을 보내겠다.
-      socket.emit('login', 'hello');
-      // 서버한테 데이터 받음 -> on
-      socket.on('hello', helloCallback);
+      socket.emit('acceptOrder', 'hello'); // 서버한테 데이터 보냄 -> emit
+      socket.on('order', callback); // 서버한테 데이터 받음 -> on
     }
-
     // clean up
     return () => {
       if (socket) {
-        // 서버한테 데이터 그만 받기
-        socket.off('hello', helloCallback);
+        socket.off('order', callback); // 서버한테 데이터 그만 받기 (on 했던 부분)
       }
     };
   }, [isLoggedIn, socket]);
 
   useEffect(() => {
     if (!isLoggedIn) {
-      console.log('!isLoggedIn', !isLoggedIn);
       disconnect();
     }
-  }, [isLoggedIn, disconnect]);
-  
+  }, [dispatch, isLoggedIn, disconnect]);
+
+    // 앱 재실행 시 토큰 있으면 자동 로그인
+    useEffect(() => {
+      // useEffect는 async 안되니까 async 함수 하나 만들고 실행하는 방식으로 구현
+      const getTokenAndRefresh = async () => {
+        try {
+          const token = await EncryptedStorage.getItem('refreshToken');
+          if (!token) {
+            return;
+          }
+          const response = await axios.post(
+            `${Config.API_URL}/refreshToken`,
+            {},
+            {
+              headers: {
+                authorization: `Bearer ${token}`,
+              },
+            },
+          );
+          dispatch(
+            userSlice.actions.setUser({
+              name: response.data.data.name,
+              email: response.data.data.email,
+              accessToken: response.data.data.accessToken,
+            }),
+          );
+        } catch (error) {
+          console.error(error);
+          if ((error as AxiosError).response?.data.code === 'expired') {
+            Alert.alert('알림', '다시 로그인 해주세요.');
+          }
+        }
+      };
+      getTokenAndRefresh();
+    }, [dispatch]);
+
   return (
     <NavigationContainer>
       {isLoggedIn ? (
