@@ -10,10 +10,17 @@ import {
 import {NativeStackScreenProps} from '@react-navigation/native-stack';
 import {RootStackParamList} from '../../App';
 import DismissKeyboardView from '../components/DismissKeyboardView';
+import {useAppDispatch} from '../store';
+import userSlice from '../slices/user';
+import axios, { AxiosError } from 'axios';
+import EncryptedStorage from 'react-native-encrypted-storage';
+import Config from 'react-native-config';
 
 type SignInScreenProps = NativeStackScreenProps<RootStackParamList, 'SignIn'>;
 
 function SignIn({navigation}: SignInScreenProps) {
+  const dispatch = useAppDispatch();
+  const [loading, setLoading] = useState(false);
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const emailRef = useRef<TextInput | null>(null);
@@ -27,15 +34,50 @@ function SignIn({navigation}: SignInScreenProps) {
     setPassword(text.trim());
   }, []);
 
-  const onSubmit = useCallback(() => {
+  const onSubmit = useCallback(async () => {
+    if (loading) {
+      return;
+    }
     if (!email || !email.trim()) {
       return Alert.alert('알림', '이메일을 입력해주세요.');
     }
     if (!password || !password.trim()) {
       return Alert.alert('알림', '비밀번호를 입력해주세요.');
     }
-    Alert.alert('알림', '로그인 되었습니다.');
-  }, [email, password]);
+    try {
+      setLoading(true);
+      const response = await axios.post(`${Config.API_URL}/login`, {
+        email,
+        password,
+      });
+      console.log(response.data);
+      Alert.alert('알림', '로그인 되었습니다.');
+      // dispatch 없으면 action 넣어도 실행 안 함
+      // action을 dispatch 안에 넣어서 함수 호출해야 action이 실제로 실행되어서 reducer가 동작함
+      // reducer와 action이 짝을 이룸
+      dispatch(
+        userSlice.actions.setUser({
+          name: response.data.data.name,
+          email: response.data.data.email,
+          accessToken: response.data.data.accessToken, 
+        }),
+      );
+      // accessToken과 refreshToken은 따로 두는 것(저장소를 나누는 것)이 좋다.
+      // accessToken : redux 저장소에만 저장 / 웹으로 따지면 memory에 넣기 / 유효기간 1시간, 10분, 5분
+      // refreshToken : EncryptedStorage에만 저장 / 웹으로 따지면 localStorage에 넣기 / 유효기간 1년, 30일, 1일
+      await EncryptedStorage.setItem(
+        'refreshToken',
+        response.data.data.refreshToken,
+      );
+    } catch (error) {
+      const errorResponse = (error as AxiosError).response;
+      if (errorResponse) {
+        Alert.alert('알림', errorResponse.data.message);
+      }
+    } finally {
+      setLoading(false);
+    }
+  }, [loading, dispatch, email, password]);
 
   const toSignUp = useCallback(() => {
     navigation.navigate('SignUp');
