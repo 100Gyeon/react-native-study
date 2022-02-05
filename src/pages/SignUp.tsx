@@ -12,7 +12,7 @@ import {
   View,
 } from 'react-native';
 import Config from 'react-native-config';
-import { RootStackParamList } from '../../App';
+import { RootStackParamList } from '../../AppInner';
 import DismissKeyboardView from '../components/DismissKeyboardView';
 
 type SignUpScreenProps = NativeStackScreenProps<RootStackParamList, 'SignUp'>;
