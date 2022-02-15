@@ -13,12 +13,11 @@ import useSocket from './src/hooks/useSocket';
 import {useEffect} from 'react';
 import EncryptedStorage from 'react-native-encrypted-storage';
 import Config from 'react-native-config';
-import axios, { AxiosError } from 'axios';
+import axios, {AxiosError} from 'axios';
 import userSlice from './src/slices/user';
-import { Alert } from 'react-native';
-import { useAppDispatch } from './src/store';
+import {Alert} from 'react-native';
+import {useAppDispatch} from './src/store';
 import orderSlice from './src/slices/order';
-
 
 export type LoggedInParamList = {
   Orders: undefined;
@@ -40,6 +39,38 @@ function AppInner() {
   const isLoggedIn = useSelector((state: RootState) => !!state.user.email);
   const [socket, disconnect] = useSocket();
   const dispatch = useAppDispatch();
+
+  // accessToken 만료 시 자동으로 refresh 되게
+  useEffect(() => {
+    axios.interceptors.response.use(
+      response => response,
+      async error => {
+        const {
+          config,
+          response: {status},
+        } = error; // error.response.status
+        if (status === 419) {
+          if (error.response.data.code === 'expired') {
+            const originalRequest = config; // 원래 요청이 error.config에 있음
+            const refreshToken = await EncryptedStorage.getItem('refreshToken');
+            // token refresh 요청
+            const {data} = await axios.post(
+              `${Config.API_URL}/refreshToken`, // token refresh api
+              {},
+              {headers: {authorization: `Bearer ${refreshToken}`}},
+            );
+            // 새로운 토큰 저장
+            dispatch(userSlice.actions.setAccessToken(data.data.accessToken));
+            // 원래 요청의 accessToken을 새 accessToken으로 바꿔줌
+            originalRequest.headers.authorization = `Bearer ${data.data.accessToken}`;
+            // 419로 실패했던 요청 새로운 토큰으로 재요청
+            return axios(originalRequest);
+          }
+        }
+        return Promise.reject(error);
+      },
+    );
+  }, []);
 
   useEffect(() => {
     const callback = (data: any) => {
@@ -63,40 +94,40 @@ function AppInner() {
     }
   }, [dispatch, isLoggedIn, disconnect]);
 
-    // 앱 재실행 시 토큰 있으면 자동 로그인
-    useEffect(() => {
-      // useEffect는 async 안되니까 async 함수 하나 만들고 실행하는 방식으로 구현
-      const getTokenAndRefresh = async () => {
-        try {
-          const token = await EncryptedStorage.getItem('refreshToken');
-          if (!token) {
-            return;
-          }
-          const response = await axios.post(
-            `${Config.API_URL}/refreshToken`,
-            {},
-            {
-              headers: {
-                authorization: `Bearer ${token}`,
-              },
-            },
-          );
-          dispatch(
-            userSlice.actions.setUser({
-              name: response.data.data.name,
-              email: response.data.data.email,
-              accessToken: response.data.data.accessToken,
-            }),
-          );
-        } catch (error) {
-          console.error(error);
-          if ((error as AxiosError).response?.data.code === 'expired') {
-            Alert.alert('알림', '다시 로그인 해주세요.');
-          }
+  // 앱 재실행 시 토큰 있으면 자동 로그인
+  useEffect(() => {
+    // useEffect는 async 안되니까 async 함수 하나 만들고 실행하는 방식으로 구현
+    const getTokenAndRefresh = async () => {
+      try {
+        const token = await EncryptedStorage.getItem('refreshToken');
+        if (!token) {
+          return;
         }
-      };
-      getTokenAndRefresh();
-    }, [dispatch]);
+        const response = await axios.post(
+          `${Config.API_URL}/refreshToken`,
+          {},
+          {
+            headers: {
+              authorization: `Bearer ${token}`,
+            },
+          },
+        );
+        dispatch(
+          userSlice.actions.setUser({
+            name: response.data.data.name,
+            email: response.data.data.email,
+            accessToken: response.data.data.accessToken,
+          }),
+        );
+      } catch (error) {
+        console.error(error);
+        if ((error as AxiosError).response?.data.code === 'expired') {
+          Alert.alert('알림', '다시 로그인 해주세요.');
+        }
+      }
+    };
+    getTokenAndRefresh();
+  }, [dispatch]);
 
   return (
     <NavigationContainer>
